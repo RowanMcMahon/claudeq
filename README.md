@@ -36,7 +36,11 @@ Flags override the name: `-m` takes `s|m|l` or any model name `claude` accepts, 
 
 ## Install
 
-    git clone <this repo> claudeq
+    curl -fsSL https://raw.githubusercontent.com/RowanMcMahon/claudeq/main/install.sh | sh
+
+Or from a clone:
+
+    git clone https://github.com/RowanMcMahon/claudeq.git
     cd claudeq
     ./install.sh
 
@@ -54,19 +58,22 @@ The same script works on macOS and Linux. It:
 
 - warns if `claude` is missing or too old, if another program earlier on PATH has a claudeq name, or if your shell defines `claudeq` aliases (which would run instead of the program)
 
-It never deletes anything and is safe to re-run; re-running after `git pull` updates the installed copy.
+It never deletes anything and is safe to re-run. Then open a new terminal and try `claudeq --help`.
 
-Then open a new terminal and try `claudeq --help`.
+To update, run the same install command again (or `git pull && ./install.sh`).
 
 ## Uninstall
 
-    find ~/.local/bin -name 'claudeq*' -type l -lname claudeq -delete
-    rm ~/.local/bin/claudeq
+    claudeq --uninstall
 
-This only removes the variant links that point at claudeq, so any unrelated file with a claudeq name is kept.
+It lists what it will remove and asks before doing anything; add `--yes` to skip the question (needed when there's no terminal to ask on). It removes:
 
-If the installer added a PATH line, remove the `# claudeq` comment and the line below it from your shell's startup file.
+- the program and the variant links pointing at it (any unrelated file with a claudeq name is kept)
+- copies saved by updates (`claudeq.bak-*`)
+- the PATH line the installer added, backing up the startup file first; if other programs live in the same directory, the line is kept since they may rely on it
+
+`./install.sh --uninstall` does the same thing, as does `curl -fsSL https://raw.githubusercontent.com/RowanMcMahon/claudeq/main/install.sh | sh -s -- --uninstall`.
 
 ## Customising
 
-Edit the installed `~/.local/bin/claudeq`: the model and effort letters are in `set_model` and `set_effort`, and the system prompt is in `prompt`. The prompt is a double-quoted string, so avoid backticks and `$` in it; the shell would expand them. Re-running `install.sh` replaces a changed copy, but backs it up first.
+Edit the installed `~/.local/bin/claudeq`: the model and effort letters are in `set_model` and `set_effort`, and the system prompt is in `prompt`. The prompt is a double-quoted string, so avoid backticks and `$` in it; the shell would expand them. Re-running the installer replaces a changed copy, but backs it up first.

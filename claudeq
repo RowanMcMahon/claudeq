@@ -6,13 +6,14 @@
 #   effort: 1=low  2=medium  3=high  4=xhigh  5=max  (default: 1)
 set -eu
 
-version=1.0.0
+version=1.1.0
 me=$(basename "$0")
 
 usage() {
   cat <<EOF
 usage: $me [-m s|m|l|MODEL] [-e 1-5|LEVEL] [--] QUESTION...
        ... | $me [QUESTION...]
+       $me --uninstall [--yes]
 
 One-shot Claude Code question: no saved session, web search allowed, and the
 answer formatted for a plain terminal. Words are joined, so quotes are optional
@@ -24,8 +25,108 @@ Variants: claudeq[s|m|l][1-5], e.g. claudeqs, claudeql4, claudeq3
 -m and -e override the variant's defaults.
 EOF
 }
+say() { printf '%s\n' "$*"; }
 die() { printf '%s: %s\n' "$me" "$*" >&2; exit 2; }
 
+# Remove this install: the program, its variant links, update backups, and the PATH line
+# install.sh added (kept if other programs share the directory). Asks first unless --yes.
+uninstall() {
+  yes=0
+  case ${1:-} in
+    -y|--yes) yes=1 ;;
+    '') ;;
+    *) die "unknown option $1 for --uninstall" ;;
+  esac
+
+  dir=$(cd "$(dirname "$0")" && pwd)
+  main="$dir/claudeq"
+  [ ! -f "$dir/install.sh" ] || die "$dir is the source copy, not an install; run the installed claudeq --uninstall"
+  [ -f "$main" ] || die "can't find the installed program at $main"
+
+  links=0 backups=0 others=0
+  for f in "$dir"/* "$dir"/.[!.]*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    if [ -L "$f" ] && [ "$(readlink "$f")" = claudeq ]; then
+      links=$((links + 1))
+    else
+      case $(basename "$f") in
+        claudeq) ;;
+        claudeq.bak-*) backups=$((backups + 1)) ;;
+        *) others=$((others + 1)) ;;
+      esac
+    fi
+  done
+
+  marker="# claudeq: add $dir to PATH"
+  rcs=""
+  for rc in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" \
+            "$HOME/.profile" "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/claudeq.fish"; do
+    if [ -f "$rc" ] && grep -qxF "$marker" "$rc"; then
+      rcs="$rcs$rc
+"
+    fi
+  done
+
+  say "This will remove:"
+  say "  $main"
+  [ "$links" -eq 0 ] || say "  $links variant links to it in $dir (claudeqs, claudeql4, ...)"
+  [ "$backups" -eq 0 ] || say "  $backups old copies saved by updates ($dir/claudeq.bak-*)"
+  printf '%s' "$rcs" | while IFS= read -r rc; do
+    if [ "$others" -gt 0 ]; then
+      say "Keeping the PATH line in $rc, since $others other program(s) in $dir may rely on it."
+    elif [ "$(basename "$rc")" = claudeq.fish ]; then
+      say "  $rc (created by claudeq's installer)"
+    else
+      say "  the PATH line claudeq's installer added to $rc (backed up first)"
+    fi
+  done
+
+  if [ "$yes" -eq 0 ]; then
+    # Ask on the terminal itself, so this works even when stdin is a pipe
+    ( : </dev/tty ) 2>/dev/null || die "no terminal to confirm on; re-run with --uninstall --yes"
+    printf 'Uninstall claudeq? [y/N] ' >/dev/tty
+    read -r answer </dev/tty || answer=""
+    case $answer in
+      y|Y|yes|YES|Yes) ;;
+      *) say "cancelled, nothing removed"; exit 1 ;;
+    esac
+  fi
+
+  for f in "$dir"/claudeq*; do
+    if [ -L "$f" ] && [ "$(readlink "$f")" = claudeq ]; then rm -f "$f"; fi
+  done
+  rm -f "$dir"/claudeq.bak-*
+
+  if [ "$others" -eq 0 ]; then
+    printf '%s' "$rcs" | while IFS= read -r rc; do
+      tmp="$rc.claudeq-tmp.$$"
+      # Drop the marker, the line after it, and the blank line install.sh put before it
+      awk -v m="$marker" '
+        skip { skip = 0; next }
+        $0 == m { if (held && prev != "") print prev; held = 0; skip = 1; next }
+        { if (held) print prev; prev = $0; held = 1 }
+        END { if (held) print prev }
+      ' "$rc" > "$tmp"
+      if [ "$(basename "$rc")" = claudeq.fish ] && ! grep -q '[^[:space:]]' "$tmp"; then
+        rm -f "$rc" "$tmp"   # installer-created file with nothing else in it
+        say "removed $rc"
+      else
+        backup="$rc.claudeq-bak-$(date +%Y%m%d%H%M%S)"
+        cp "$rc" "$backup"
+        cat "$tmp" > "$rc"   # write in place, so a symlinked rc file stays a symlink
+        rm -f "$tmp"
+        say "removed the PATH line from $rc (previous version saved to $backup)"
+      fi
+    done
+  fi
+
+  # The shell already has this script open, so deleting it mid-run is safe
+  rm -f "$main"
+  say "claudeq uninstalled. open a new terminal to drop it from your shell's command cache."
+}
+
+# Defaults come from the name we were run as, e.g. claudeql4 -> opus, xhigh
+model=haiku effort=low
 set_model() {
   case $1 in
     s) model=haiku ;;
@@ -46,9 +147,6 @@ set_effort() {
     *) die "unknown effort '$1' (use 1-5 or low|medium|high|xhigh|max)" ;;
   esac
 }
-
-# Defaults come from the name we were run as, e.g. claudeql4 -> opus, xhigh
-model=haiku effort=low
 case $me in
   claudeq*)
     v=${me#claudeq}
@@ -69,6 +167,7 @@ while [ $# -gt 0 ]; do
     -e) [ $# -ge 2 ] || die "-e needs a value"; set_effort "$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -V|--version) echo "claudeq $version"; exit 0 ;;
+    --uninstall) shift; uninstall "$@"; exit 0 ;;
     --) shift; break ;;
     -?*) die "unknown option $1 (see $me --help)" ;;
     *) break ;;
