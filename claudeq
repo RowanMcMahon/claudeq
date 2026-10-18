@@ -1,0 +1,100 @@
+#!/bin/sh
+# claudeq: throwaway one-shot Claude Code questions, answered straight into the terminal.
+# Installed as `claudeq` plus symlinks (claudeqs, claudeql4, ...); the name it's run as picks
+# the model and effort: claudeq[model][effort]
+#   model:  s=haiku  m=sonnet  l=opus             (default: s)
+#   effort: 1=low  2=medium  3=high  4=xhigh  5=max  (default: 1)
+set -eu
+
+version=1.0.0
+me=$(basename "$0")
+
+usage() {
+  cat <<EOF
+usage: $me [-m s|m|l|MODEL] [-e 1-5|LEVEL] [--] QUESTION...
+       ... | $me [QUESTION...]
+
+One-shot Claude Code question: no saved session, web search allowed, and the
+answer formatted for a plain terminal. Words are joined, so quotes are optional
+(but quote anything your shell would expand, like ? or *).
+
+Variants: claudeq[s|m|l][1-5], e.g. claudeqs, claudeql4, claudeq3
+  model   s=haiku  m=sonnet  l=opus                  (default s)
+  effort  1=low  2=medium  3=high  4=xhigh  5=max    (default 1)
+-m and -e override the variant's defaults.
+EOF
+}
+die() { printf '%s: %s\n' "$me" "$*" >&2; exit 2; }
+
+set_model() {
+  case $1 in
+    s) model=haiku ;;
+    m) model=sonnet ;;
+    l) model=opus ;;
+    ?*) model=$1 ;;  # any model name or alias claude accepts
+    *) die "missing model" ;;
+  esac
+}
+set_effort() {
+  case $1 in
+    1) effort=low ;;
+    2) effort=medium ;;
+    3) effort=high ;;
+    4) effort=xhigh ;;
+    5) effort=max ;;
+    low|medium|high|xhigh|max) effort=$1 ;;
+    *) die "unknown effort '$1' (use 1-5 or low|medium|high|xhigh|max)" ;;
+  esac
+}
+
+# Defaults come from the name we were run as, e.g. claudeql4 -> opus, xhigh
+model=haiku effort=low
+case $me in
+  claudeq*)
+    v=${me#claudeq}
+    case $v in
+      [sml]*) set_model "${v%"${v#?}"}"; v=${v#?} ;;
+    esac
+    case $v in
+      '') ;;
+      [1-5]) set_effort "$v" ;;
+      *) die "unrecognised variant name (expected claudeq[s|m|l][1-5])" ;;
+    esac
+    ;;
+esac
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    -m) [ $# -ge 2 ] || die "-m needs a value"; set_model "$2"; shift 2 ;;
+    -e) [ $# -ge 2 ] || die "-e needs a value"; set_effort "$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    -V|--version) echo "claudeq $version"; exit 0 ;;
+    --) shift; break ;;
+    -?*) die "unknown option $1 (see $me --help)" ;;
+    *) break ;;
+  esac
+done
+
+# No question and nothing piped in: nothing to ask
+if [ $# -eq 0 ] && [ -t 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+# COLUMNS isn't exported to child processes, so ask the terminal directly
+cols=${COLUMNS:-}
+case $cols in
+  ''|*[!0-9]*) cols=$( { stty size </dev/tty; } 2>/dev/null | cut -d' ' -f2 ) ;;
+esac
+case $cols in
+  ''|*[!0-9]*|0) cols=80 ;;
+esac
+
+# Double-quoted: avoid backticks and $ in this text, the shell would expand them
+prompt="Your response is printed raw to a terminal by a one-shot shell command, not shown in the Claude Code UI. Markdown is not rendered: do not use headings, bold, italics, code fences or backticks. Use plain text, short paragraphs, '-' bullets and indented code. Draw tables, charts and graphs with Unicode box-drawing and block characters (e.g. ┌─┬┐│├┼┤└┴┘ ▁▂▃▄▅▆▇█), laid out on a monospace grid: pad every cell so columns line up and rows are the same width, and avoid emoji or other double-width characters. The terminal is $cols columns wide: keep tables and charts within that width and print them directly, never inside a fenced code block (prose can wrap naturally). The user cannot reply, so do not ask follow-up questions; answer directly and concisely."
+
+# Join the words into one question; with none, claude reads it from stdin
+[ $# -gt 0 ] && set -- "$*"
+
+exec claude --allowedTools=WebSearch,WebFetch --print --no-session-persistence \
+  --model="$model" --effort="$effort" --append-system-prompt="$prompt" "$@"

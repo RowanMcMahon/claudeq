@@ -1,19 +1,22 @@
 # claudeq
 
-Throwaway one-shot Claude Code questions from the terminal, via generated shell aliases.
+Throwaway one-shot Claude Code questions, answered straight into the terminal.
 
-    claudeq "how do I undo the last git commit"
-    claudeqm3 "chart the price of bitcoin over the last year"
+    claudeq how do I undo the last git commit
+    claudeqm3 chart the price of bitcoin over the last year
+    git diff | claudeqm explain this change
 
-Each alias runs `claude --print` with:
+Each run calls `claude --print` with:
 
 - no saved session (`--no-session-persistence`)
 - WebSearch and WebFetch pre-allowed
 - a short system prompt explaining the output goes raw to a terminal (no markdown, Unicode tables/charts sized to the terminal width)
 
-## Naming
+Words are joined into one question, so quotes are optional; quote anything your shell would expand, like `?` or `*`. Piped input is passed to Claude along with the question.
 
-`claudeq[model][effort]`, where either suffix can be left off:
+## Variants
+
+The command name picks the model and effort: `claudeq[model][effort]`, where either suffix can be left off.
 
 | Suffix | Meaning                                           | Default |
 |--------|---------------------------------------------------|---------|
@@ -22,11 +25,14 @@ Each alias runs `claude --print` with:
 
 So `claudeq` = haiku/low, `claudeql` = opus/low, `claudeq3` = haiku/high, `claudeql5` = opus/max.
 
+Flags override the name: `-m` takes `s|m|l` or any model name `claude` accepts, `-e` takes `1-5` or a level name. Use `--` before a question that starts with `-`. See `claudeq --help`.
+
 ## Requirements
 
 - macOS or Linux
-- zsh or bash (bash 3.2+, so macOS's built-in bash works)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude` on your PATH), signed in
+
+`claudeq` is a POSIX `sh` script, so it works from any shell, scripts, editors and cron.
 
 ## Install
 
@@ -34,33 +40,33 @@ So `claudeq` = haiku/low, `claudeql` = opus/low, `claudeq3` = haiku/high, `claud
     cd claudeq
     ./install.sh
 
-The same script works on macOS and Linux. It installs for your login shell (`$SHELL`); to pick one explicitly, run `./install.sh zsh` or `./install.sh bash`.
+The same script works on macOS and Linux. It:
 
-The installer:
-
-- copies `claudeq.sh` to `${XDG_CONFIG_HOME:-~/.config}/claudeq/claudeq.sh`, backing up any changed copy already there
-- adds a line sourcing it to your shell's startup file, only if one isn't already present:
+- copies `claudeq` to `~/.local/bin` (or `$XDG_BIN_HOME`, or `$CLAUDEQ_BIN_DIR` if set), backing up any changed copy already there
+- links the 23 variant names (`claudeqs`, `claudeql4`, ...) to it, leaving alone any existing file with one of those names
+- if that directory isn't on your PATH, adds it in your shell's startup file:
 
   | Shell | macOS                                                          | Linux        |
   |-------|----------------------------------------------------------------|--------------|
   | zsh   | `~/.zshrc` (or `$ZDOTDIR/.zshrc`)                               | same         |
   | bash  | first existing of `~/.bash_profile`, `~/.bash_login`, `~/.profile` (else creates `~/.bash_profile`) | `~/.bashrc` |
+  | fish  | `~/.config/fish/conf.d/claudeq.fish`                            | same         |
 
-- warns about any existing `alias claudeq...` lines in that file that would clash, without touching them
-- warns if `claude` is missing or too old for the flags claudeq uses
+- warns if `claude` is missing or too old, if another program earlier on PATH has a claudeq name, or if your shell defines `claudeq` aliases (which would run instead of the program)
 
 It never deletes anything and is safe to re-run; re-running after `git pull` updates the installed copy.
 
-Then open a new terminal, or `source` the startup file it names.
-
-### Manual install
-
-Copy `claudeq.sh` anywhere and add `. /path/to/claudeq.sh` to your shell's startup file.
+Then open a new terminal and try `claudeq --help`.
 
 ## Uninstall
 
-Remove the `# claudeq` comment and the line below it from your shell's startup file, then delete `~/.config/claudeq/`.
+    find ~/.local/bin -name 'claudeq*' -type l -lname claudeq -delete
+    rm ~/.local/bin/claudeq
+
+This only removes the variant links that point at claudeq, so any unrelated file with a claudeq name is kept.
+
+If the installer added a PATH line, remove the `# claudeq` comment and the line below it from your shell's startup file.
 
 ## Customising
 
-Edit the installed `claudeq.sh`: the model and effort letters are in the two `case` blocks, and the system prompt is in `_claudeq`. The prompt is a double-quoted string, so avoid backticks and `$` in it; the shell would expand them.
+Edit the installed `~/.local/bin/claudeq`: the model and effort letters are in `set_model` and `set_effort`, and the system prompt is in `prompt`. The prompt is a double-quoted string, so avoid backticks and `$` in it; the shell would expand them. Re-running `install.sh` replaces a changed copy, but backs it up first.
